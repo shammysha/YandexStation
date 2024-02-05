@@ -908,7 +908,7 @@ class YandexStation(YandexStationBase):
 
     async def init_local_mode(self):
         await super().init_local_mode()
-        await async_build_source_list()
+        await self.async_build_source_list()
         
         # Add listener
         self.async_on_remove(
