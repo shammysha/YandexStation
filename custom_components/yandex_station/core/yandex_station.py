@@ -5,7 +5,7 @@ import logging
 import re
 import time
 import uuid
-from typing import Optional
+from typing import Optional, EventType
 
 import yaml
 from homeassistant.components import shopping_list
