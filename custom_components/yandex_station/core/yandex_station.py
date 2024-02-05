@@ -940,7 +940,7 @@ class YandexStation(YandexStationBase):
                 self.sync_sources[src.get("name")] = src
 
         self._attr_device_class = MediaPlayerDeviceClass.TV
-        self._attr_source_list = [SOURCE_STATION] + self.sync_sources.keys()
+        self._attr_source_list = [SOURCE_STATION] + list(self.sync_sources.keys())
         
         if self._attr_source not in self._attr_source_list:
             self._attr_source = SOURCE_STATION
