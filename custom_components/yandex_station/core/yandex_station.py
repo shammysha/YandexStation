@@ -25,7 +25,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceRegistry
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.template import Template
-from homeassustant.helpers.event import TrackStates, async_track_state_change_filtered
+from homeassistant.helpers.event import TrackStates, async_track_state_change_filtered
 from homeassistant.util import dt
 from . import utils
 from .const import DATA_CONFIG, DOMAIN
