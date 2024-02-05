@@ -947,7 +947,7 @@ class YandexStation(YandexStationBase):
         # Add listener
         self.async_on_remove(
             async_track_state_change_filtered(
-                self.hass, TrackStates(False, set(), {"media_player"}), self._media_player_change_listener
+                self.hass, TrackStates(False, None, {"media_player"}), self._media_player_change_listener
             ).async_remove
         )    
 
@@ -960,11 +960,11 @@ class YandexStation(YandexStationBase):
         self.debug(f"newstate: {new}")        
         
         if (
-                event.data["old_state"] in STATES_OUT_OF_USE 
-                and event.data["new_state"] not in STATES_OUT_OF_USE
+                event.data["old_state"].state in STATES_OUT_OF_USE 
+                and event.data["new_state"].state not in STATES_OUT_OF_USE
         ) or (
-                event.data["new_state"] in STATES_OUT_OF_USE 
-                and event.data["old_state"] not in STATES_OUT_OF_USE
+                event.data["new_state"].state in STATES_OUT_OF_USE 
+                and event.data["old_state"].state not in STATES_OUT_OF_USE
         ):
             await self.async_build_source_list()
 
