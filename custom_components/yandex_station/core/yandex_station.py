@@ -950,12 +950,7 @@ class YandexStation(YandexStationBase):
                 self.hass, TrackStates(False, set(), {"media_player"}), self._media_player_change_listener
             ).async_remove
         )    
-        
-    async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added to hass."""
-        await super().async_added_to_hass()  async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added to hass."""
-        await super().async_added_to_hass()  
+
     async def _media_player_change_listener(self, event: EventType[EventStateChangedData]) -> None:
         ent = event.data["entity_id"]
         old = event.data["old_state"]
