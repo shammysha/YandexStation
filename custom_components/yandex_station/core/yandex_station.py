@@ -18,14 +18,15 @@ from homeassistant.components.media_player import (
     MediaType,
     MediaPlayerState,
 )
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.components.media_source.models import BrowseMediaSource
-from homeassistant.core import callback
+from homeassistant.core import callback, split_entity_id
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceRegistry
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.template import Template
+from homeassustant.helpers.event import TrackStates, async_track_state_change_filtered
 from homeassistant.util import dt
-
 from . import utils
 from .const import DATA_CONFIG, DOMAIN
 from .yandex_glagol import YandexGlagol
@@ -112,6 +113,7 @@ CUSTOM = {
     "quinglong": ["yandex:display-xiaomi", "Xiaomi", "Smart Display 10R X10G (2023)"],
 }
 
+STATES_OUT_OF_USE = [ MediaPlayerState.OFF, STATE_UNAVAILABLE, STATE_UNKNOWN ]
 
 # noinspection PyAbstractClass
 class YandexSource(BrowseMediaSource):
@@ -906,30 +908,12 @@ class YandexStation(YandexStationBase):
     async def init_local_mode(self):
         await super().init_local_mode()
 
-        # init sources only once
-        if self.sync_sources is not None:
-            return
-
-        self.sync_sources = {}
-        for src in utils.get_media_players(self.hass, self.entity_id):
-            if src.get("name"):
-                self.sync_sources[src.get("name")] = src
-            else:
-                entity = src.get("entity_id").split(".")
-                if len(entity) == 2:
-                    self.sync_sources[entity[1]] = src
-                else: 
-                    continue
-
-        if not self.sync_sources:
-            return
-
-        if not self._attr_source_list:
-            self._attr_device_class = MediaPlayerDeviceClass.TV
-            self._attr_source_list = [SOURCE_STATION]
-            self._attr_source = SOURCE_STATION
-
-        self._attr_source_list += list(self.sync_sources.keys())
+        # Add listener
+        self.async_on_remove(
+            async_track_state_change_filtered(
+                self.hass, TrackStates(False, set(), {"media_player"}, self._media_player_change_listener
+            ).async_remove
+        )    
 
     async def async_select_source(self, source):
         if self.sync_mute is True:
@@ -946,7 +930,30 @@ class YandexStation(YandexStationBase):
 
         self.sync_enabled = self.sync_sources and source in self.sync_sources
 
-    @callback
+    async def async_build_source_list(self) -> None:
+        self.sync_sources = {}
+            
+        for src in utils.get_media_players(self.hass, self.entity_id):
+            if src.get("name"):
+                self.sync_sources[src.get("name")] = src
+
+        self._attr_device_class = MediaPlayerDeviceClass.TV
+        self._attr_source_list = [SOURCE_STATION] + self.sync_sources.keys()
+        
+        if self._attr_source not in self._attr_source_list:
+            self._attr_source = SOURCE_STATION
+    
+    @callback    
+    async def _media_player_change_listener(self, evt: EventType[event.EventStateChangedData]) -> None:
+        if (
+                evt.data["old_state"] in STATES_OUT_OF_USE 
+                and evt.data["new_state"] not in STATES_OUT_OF_USE
+        ) or (
+                evt.data["new_state"] in STATES_OUT_OF_USE 
+                and evt.data["old_state"] not in STATES_OUT_OF_USE
+        ):
+            await self.async_build_source_list()
+            
     def async_set_state(self, data: dict):
         super().async_set_state(data)
 
