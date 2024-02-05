@@ -5,7 +5,7 @@ import logging
 import re
 import time
 import uuid
-from typing import Optional, EventType
+from typing import Optional
 
 import yaml
 from homeassistant.components import shopping_list
@@ -25,6 +25,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceRegistry
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.template import Template
+from homeassistant.helpers.typing import EventType
 from homeassistant.helpers.event import TrackStates, async_track_state_change_filtered
 from homeassistant.util import dt
 from . import utils
