@@ -908,7 +908,10 @@ class YandexStation(YandexStationBase):
 
     async def init_local_mode(self):
         await super().init_local_mode()
-        await self.async_build_source_list()
+
+        if self.sync_sources is None:
+            await self.async_build_source_list()
+            self._attr_source = SOURCE_STATION
         
         # Add listener
         self.async_on_remove(
@@ -933,6 +936,7 @@ class YandexStation(YandexStationBase):
         self.sync_enabled = self.sync_sources and source in self.sync_sources
 
     async def async_build_source_list(self) -> None:
+        first_load = (self.sync_sources is None)
         self.sync_sources = {}
             
         for src in utils.get_media_players(self.hass, self.entity_id):
@@ -941,9 +945,6 @@ class YandexStation(YandexStationBase):
 
         self._attr_device_class = MediaPlayerDeviceClass.TV
         self._attr_source_list = [SOURCE_STATION] + list(self.sync_sources.keys())
-        
-        if self._attr_source not in self._attr_source_list:
-            self._attr_source = SOURCE_STATION
     
     @callback    
     async def _media_player_change_listener(self, event: EventType[EventStateChangedData]) -> None:
@@ -955,6 +956,9 @@ class YandexStation(YandexStationBase):
                 and event.data["old_state"] not in STATES_OUT_OF_USE
         ):
             await self.async_build_source_list()
+
+            if self._attr_source not in self._attr_source_list:
+                await self.async_select_source(SOURCE_STATION)
             
     def async_set_state(self, data: dict):
         super().async_set_state(data)
