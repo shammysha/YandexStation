@@ -26,7 +26,7 @@ from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, Device
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.template import Template
 from homeassistant.helpers.typing import EventType
-from homeassistant.helpers.event import TrackStates, async_track_state_change_filtered
+from homeassistant.helpers.event import TrackStates, EventStateChangedData, async_track_state_change_filtered
 from homeassistant.util import dt
 from . import utils
 from .const import DATA_CONFIG, DOMAIN
@@ -945,13 +945,13 @@ class YandexStation(YandexStationBase):
             self._attr_source = SOURCE_STATION
     
     @callback    
-    async def _media_player_change_listener(self, evt: EventType[event.EventStateChangedData]) -> None:
+    async def _media_player_change_listener(self, event: EventType[EventStateChangedData]) -> None:
         if (
-                evt.data["old_state"] in STATES_OUT_OF_USE 
-                and evt.data["new_state"] not in STATES_OUT_OF_USE
+                event.data["old_state"] in STATES_OUT_OF_USE 
+                and event.data["new_state"] not in STATES_OUT_OF_USE
         ) or (
-                evt.data["new_state"] in STATES_OUT_OF_USE 
-                and evt.data["old_state"] not in STATES_OUT_OF_USE
+                event.data["new_state"] in STATES_OUT_OF_USE 
+                and event.data["old_state"] not in STATES_OUT_OF_USE
         ):
             await self.async_build_source_list()
             
