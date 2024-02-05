@@ -912,7 +912,7 @@ class YandexStation(YandexStationBase):
         # Add listener
         self.async_on_remove(
             async_track_state_change_filtered(
-                self.hass, TrackStates(False, set(), {"media_player"}, self._media_player_change_listener)
+                self.hass, TrackStates(False, set(), {"media_player"}), self._media_player_change_listener)
             ).async_remove
         )    
 
