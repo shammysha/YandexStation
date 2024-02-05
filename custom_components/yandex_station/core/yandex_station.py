@@ -948,9 +948,12 @@ class YandexStation(YandexStationBase):
     
     @callback    
     async def _media_player_change_listener(self, event: EventType[EventStateChangedData]) -> None:
-        self.debug(f"entity: {event.data['entity_id']}")      
-        self.debug(f"oldstate: {event.data['old_state']}")        
-        self.debug(f"newstate: {event.data['old_state']}")        
+        ent = event.data["entity_id"]
+        old = event.data["old_state"]
+        new = event.data["new_state"]
+        self.debug(f"entity: {ent}")      
+        self.debug(f"oldstate: {old}")        
+        self.debug(f"newstate: {new}")        
         
         if (
                 event.data["old_state"] in STATES_OUT_OF_USE 
