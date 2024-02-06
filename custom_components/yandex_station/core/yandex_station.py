@@ -941,7 +941,6 @@ class YandexStation(YandexStationBase):
         self.sync_enabled = self.sync_sources and source in self.sync_sources
 
     async def async_build_source_list(self) -> None:
-        first_load = (self.sync_sources is None)
         self.sync_sources = {}
             
         for src in utils.get_media_players(self.hass, self.entity_id):
@@ -980,7 +979,9 @@ class YandexStation(YandexStationBase):
 
             if self._attr_source not in self._attr_source_list:
                 await self.async_select_source(SOURCE_STATION)
-
+            else:
+                await self.async_write_ha_state()
+                
     async def _media_player_registry_change_listener(self, event: EventType[EventEntityRegistryUpdatedData]) -> None:
         if event.data["action"] != "update":
             return
@@ -993,7 +994,8 @@ class YandexStation(YandexStationBase):
 
             if self._attr_source not in self._attr_source_list:
                 await self.async_select_source(SOURCE_STATION)
-    
+            else:
+                await self.async_write_ha_state()
     
     def async_set_state(self, data: dict):
         super().async_set_state(data)
