@@ -958,18 +958,11 @@ class YandexStation(YandexStationBase):
         self.debug(f"entity: {ent}")      
         self.debug(f"oldstate: {old}")        
         self.debug(f"newstate: {new}")        
-        
-        if (
-                event.data["old_state"].state in STATES_OUT_OF_USE 
-                and event.data["new_state"].state not in STATES_OUT_OF_USE
-        ) or (
-                event.data["new_state"].state in STATES_OUT_OF_USE 
-                and event.data["old_state"].state not in STATES_OUT_OF_USE
-        ):
-            await self.async_build_source_list()
 
-            if self._attr_source not in self._attr_source_list:
-                await self.async_select_source(SOURCE_STATION)
+        await self.async_build_source_list()
+
+        if self._attr_source not in self._attr_source_list:
+            await self.async_select_source(SOURCE_STATION)
             
     def async_set_state(self, data: dict):
         super().async_set_state(data)
