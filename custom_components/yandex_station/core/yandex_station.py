@@ -980,7 +980,7 @@ class YandexStation(YandexStationBase):
             if self._attr_source not in self._attr_source_list:
                 await self.async_select_source(SOURCE_STATION)
             else:
-                await self.async_write_ha_state()
+                self.async_write_ha_state()
                 
     async def _media_player_registry_change_listener(self, event: EventType[EventEntityRegistryUpdatedData]) -> None:
         if event.data["action"] != "update":
@@ -995,7 +995,7 @@ class YandexStation(YandexStationBase):
             if self._attr_source not in self._attr_source_list:
                 await self.async_select_source(SOURCE_STATION)
             else:
-                await self.async_write_ha_state()
+                self.async_write_ha_state()
     
     def async_set_state(self, data: dict):
         super().async_set_state(data)
