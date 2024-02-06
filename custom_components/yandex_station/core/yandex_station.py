@@ -965,7 +965,7 @@ class YandexStation(YandexStationBase):
         self.async_on_remove(
             async_track_entity_registry_updated_event(
                 self.hass, iter(self.all_players), self._media_player_registry_change_listener
-            ).async_remove
+            )
         )           
 
     async def _media_player_state_change_listener(self, event: EventType[EventStateChangedData]) -> None:
