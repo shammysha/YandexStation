@@ -969,11 +969,19 @@ class YandexStation(YandexStationBase):
 
     async def _media_player_state_change_listener(self, event: EventType[EventStateChangedData]) -> None:
         if (
-            (event.data["old_state"] is None or event.data["old_state"].state in STATES_OUT_OF_USE) 
-            and (event.data["new_state"] is not None and event.data["new_state"].state not in STATES_OUT_OF_USE)
+            (
+                event.data["old_state"] is None 
+                or event.data["old_state"].state in STATES_OUT_OF_USE
+            ) 
+            and event.data["new_state"] is not None 
+            and event.data["new_state"].state not in STATES_OUT_OF_USE
         ) or (
-            (event.data["new_state"] is None or event.data["new_state"].state in STATES_OUT_OF_USE) 
-            and (event.data["old_state"] is not None and event.data["old_state"].state not in STATES_OUT_OF_USE)            
+            (
+                event.data["new_state"] is None 
+                or event.data["new_state"].state in STATES_OUT_OF_USE
+            ) 
+            and event.data["old_state"] is not None 
+            and event.data["old_state"].state not in STATES_OUT_OF_USE            
         ):
             await self.async_build_source_list()
 
