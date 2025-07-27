@@ -16,7 +16,6 @@ from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
-    SUPPORT_PLAY_MEDIA,
     MediaType,
     RepeatMode,
     async_process_play_media_url,
@@ -1062,7 +1061,7 @@ class YandexStation(YandexStationBase):
         er: EntityRegistry = self.hass.data['entity_registry']
         ent_reg = er.async_get(event.data["entity_id"])
 
-        if ent_reg.supported_features & SUPPORT_PLAY_MEDIA:
+        if ent_reg.supported_features & MediaPlayerEntityFeature.PLAY_MEDIA:
             await self.async_build_source_list()
 
             if self._attr_source not in self._attr_source_list:
