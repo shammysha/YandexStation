@@ -16,7 +16,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
-    SUPPORT_PLAY_MEDIA
+    SUPPORT_PLAY_MEDIA,
     MediaType,
     RepeatMode,
     async_process_play_media_url,
