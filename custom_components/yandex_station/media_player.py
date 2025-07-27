@@ -8,24 +8,25 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
     MediaType,
 )
-from homeassistant.const import CONF_INCLUDE
 
 from .core import utils
-from .core.const import CONF_INTENTS, DATA_CONFIG, DOMAIN
+from .core.const import DOMAIN
 from .core.entity import YandexEntity
 from .core.yandex_quasar import YandexQuasar
-from .core.yandex_station import YandexStation, YandexModule
+from .core.yandex_station import YandexModule, YandexStation
+from .hass import hass_utils
 
 _LOGGER = logging.getLogger(__name__)
 
 # update speaker online state once per 5 minutes
 SCAN_INTERVAL = timedelta(minutes=5)
 
-INCLUDE_TYPES = [
+INCLUDE_TYPES = (
+    "devices.types.media_device",
     "devices.types.media_device.receiver",
     "devices.types.media_device.tv",
     "devices.types.media_device.tv_box",
-]
+)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -33,7 +34,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     # add Yandex stations
     entities = []
-    for speaker in await quasar.load_speakers():
+    for speaker in quasar.speakers:
         speaker["entity"] = entity = YandexStation(quasar, speaker)
         entities.append(entity)
     for module in quasar.modules:
@@ -42,56 +43,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities(entities, True)
 
     # add Quasar TVs
-    if CONF_INCLUDE not in hass.data[DOMAIN][DATA_CONFIG]:
-        return
-
-    include = hass.data[DOMAIN][DATA_CONFIG][CONF_INCLUDE]
-    entities = [
+    async_add_entities(
         YandexMediaPlayer(quasar, device, config)
-        for device in quasar.devices
-        if (config := utils.device_include(device, include, INCLUDE_TYPES))
-    ]
-    async_add_entities(entities, True)
-
-
-# noinspection PyUnusedLocal
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    # only intents setup via setup platform
-    intents = discovery_info[CONF_INTENTS]
-    add_entities([YandexIntents(intents)])
-
-
-# noinspection PyAbstractClass
-class YandexIntents(MediaPlayerEntity):
-    _attr_name = "Yandex Intents"
-    _attr_supported_features = (
-        MediaPlayerEntityFeature.TURN_ON
-        | MediaPlayerEntityFeature.TURN_OFF
-        | MediaPlayerEntityFeature.VOLUME_SET
-        | MediaPlayerEntityFeature.VOLUME_STEP
+        for quasar, device, config in hass_utils.incluce_devices(hass, entry)
+        if device["type"] in INCLUDE_TYPES
     )
-
-    def __init__(self, intents: list):
-        self.intents = intents
-
-    async def async_volume_up(self):
-        pass
-
-    async def async_volume_down(self):
-        pass
-
-    async def async_set_volume_level(self, volume):
-        index = int(volume * 100) - 1
-        if index < len(self.intents):
-            text = self.intents[index]
-            _LOGGER.debug(f"Получена команда: {text}")
-            self.hass.bus.async_fire("yandex_intent", {"text": text})
-
-    async def async_turn_on(self):
-        pass
-
-    async def async_turn_off(self):
-        pass
 
 
 # noinspection PyAbstractClass
@@ -155,36 +111,36 @@ class YandexMediaPlayer(MediaPlayerEntity, YandexEntity):
         self._async_write_ha_state()
 
     async def async_turn_on(self):
-        await self.quasar.device_actions(self.device["id"], on=True)
+        await self.device_actions(on=True)
 
     async def async_turn_off(self):
-        await self.quasar.device_actions(self.device["id"], on=False)
+        await self.device_actions(on=False)
 
     async def async_volume_up(self):
-        await self.quasar.device_actions(self.device["id"], volume=1)
+        await self.device_actions(volume=1)
 
     async def async_volume_down(self):
-        await self.quasar.device_actions(self.device["id"], volume=-1)
+        await self.device_actions(volume=-1)
 
     async def async_mute_volume(self, mute):
-        await self.quasar.device_actions(self.device["id"], mute=mute)
+        await self.device_actions(mute=mute)
 
     async def async_media_next_track(self):
-        await self.quasar.device_actions(self.device["id"], channel=1)
+        await self.device_actions(channel=1)
 
     async def async_media_previous_track(self):
-        await self.quasar.device_actions(self.device["id"], channel=-1)
+        await self.device_actions(channel=-1)
 
     async def async_media_play(self):
-        await self.quasar.device_actions(self.device["id"], pause=False)
+        await self.device_actions(pause=False)
 
     async def async_media_pause(self):
-        await self.quasar.device_actions(self.device["id"], pause=True)
+        await self.device_actions(pause=True)
 
     async def async_select_source(self, source: str):
         source = self.sources[source]
-        await self.quasar.device_actions(self.device["id"], input_source=source)
+        await self.device_actions(input_source=source)
 
     async def async_play_media(self, media_type: MediaType, media_id: str, **kwargs):
         if media_type == MediaType.CHANNEL:
-            await self.quasar.device_action(self.device["id"], "channel", int(media_id))
+            await self.device_action("channel", int(media_id))

@@ -3,29 +3,29 @@ import logging
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
-    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.const import (
-    CONF_INCLUDE,
+    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    CONCENTRATION_PARTS_PER_MILLION,
     LIGHT_LUX,
     PERCENTAGE,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
+    UnitOfEnergy,
     UnitOfPower,
     UnitOfPressure,
     UnitOfTemperature,
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    UnitOfVolume,
 )
 
-from .core import utils
-from .core.const import DATA_CONFIG, DOMAIN
 from .core.entity import YandexCustomEntity
+from .hass import hass_utils
 
 _LOGGER = logging.getLogger(__name__)
 
 # https://yandex.ru/dev/dialogs/smart-home/doc/concepts/device-type-sensor.html
-INCLUDE_TYPES = [
+INCLUDE_TYPES = (
     "devices.types.sensor",
     "devices.types.sensor.button",
     "devices.types.sensor.climate",
@@ -41,112 +41,75 @@ INCLUDE_TYPES = [
     "devices.types.smart_meter.electricity",
     "devices.types.smart_meter.gas",
     "devices.types.smart_meter.heat",
-    "devices.types.smart_meter.heat.hot_water",
+    "devices.types.smart_meter.hot_water",
+    "devices.types.smart_speaker.yandex.station.plum",
     "devices.types.socket",
-]
-INCLUDE_PROPERTIES = ["devices.properties.float", "devices.properties.event"]
-
-SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
-    SensorEntityDescription(
-        key="temperature",
-        device_class=SensorDeviceClass.TEMPERATURE,
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(
-        key="humidity",
-        device_class=SensorDeviceClass.HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(
-        key="pm2.5_density",
-        device_class=SensorDeviceClass.PM25,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(
-        key="illumination",
-        device_class=SensorDeviceClass.ILLUMINANCE,
-        native_unit_of_measurement=LIGHT_LUX,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(
-        key="battery_level",
-        device_class=SensorDeviceClass.BATTERY,
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(
-        key="pressure",
-        device_class=SensorDeviceClass.PRESSURE,
-        native_unit_of_measurement=UnitOfPressure.MMHG,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(
-        key="voltage",
-        device_class=SensorDeviceClass.VOLTAGE,
-        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(
-        key="power",
-        device_class=SensorDeviceClass.POWER,
-        native_unit_of_measurement=UnitOfPower.WATT,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(
-        key="amperage",
-        device_class=SensorDeviceClass.CURRENT,
-        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    SensorEntityDescription(key="vibration", device_class=SensorDeviceClass.ENUM),
-    SensorEntityDescription(key="open", device_class=SensorDeviceClass.ENUM),
-    SensorEntityDescription(key="button", device_class=SensorDeviceClass.ENUM),
-    SensorEntityDescription(key="motion", device_class=SensorDeviceClass.ENUM),
-    SensorEntityDescription(key="smoke", device_class=SensorDeviceClass.ENUM),
-    SensorEntityDescription(key="gas", device_class=SensorDeviceClass.ENUM),
-    SensorEntityDescription(key="food_level", device_class=SensorDeviceClass.ENUM),
-    SensorEntityDescription(key="water_level", device_class=SensorDeviceClass.ENUM),
-    SensorEntityDescription(key="water_leak", device_class=SensorDeviceClass.ENUM),
 )
+INCLUDE_PROPERTIES = ("devices.properties.float", "devices.properties.event")
 
-INCLUDE_INSTANCES: list[str] = [desc.key for desc in SENSOR_TYPES]
+SENSOR = SensorDeviceClass  # just to reduce the code
+
+ENTITY_DESCRIPTIONS: dict[str, dict] = {
+    "temperature": {"class": SENSOR.TEMPERATURE, "units": UnitOfTemperature.CELSIUS},
+    "humidity": {"class": SENSOR.HUMIDITY, "units": PERCENTAGE},
+    "pm2.5_density": {
+        "class": SENSOR.PM25,
+        "units": CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    },
+    "pm10_density": {
+        "class": SENSOR.PM10,
+        "units": CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    },
+    "co2_level": {"class": SENSOR.CO2, "units": CONCENTRATION_PARTS_PER_MILLION},
+    "illumination": {"class": SENSOR.ILLUMINANCE, "units": LIGHT_LUX},
+    "battery_level": {"class": SENSOR.BATTERY, "units": PERCENTAGE},
+    "pressure": {"class": SENSOR.PRESSURE, "units": UnitOfPressure.MMHG},
+    "voltage": {"class": SENSOR.VOLTAGE, "units": UnitOfElectricPotential.VOLT},
+    "power": {"class": SENSOR.POWER, "units": UnitOfPower.WATT},
+    "amperage": {"class": SENSOR.CURRENT, "units": UnitOfElectricCurrent.AMPERE},
+    "vibration": {"class": SENSOR.ENUM},
+    "open": {"class": SENSOR.ENUM},
+    "button": {"class": SENSOR.ENUM},
+    "motion": {"class": SENSOR.ENUM},
+    "smoke": {"class": SENSOR.ENUM},
+    "gas": {"class": SENSOR.ENUM},
+    "food_level": {"class": SENSOR.ENUM},
+    "water_level": {"class": SENSOR.ENUM},
+    "water_leak": {"class": SENSOR.ENUM},
+    "electricity_meter": {"class": SENSOR.ENERGY, "units": UnitOfEnergy.KILO_WATT_HOUR},
+    "gas_meter": {"class": SENSOR.GAS, "units": UnitOfVolume.CUBIC_METERS},
+    "water_meter": {"class": SENSOR.WATER, "units": UnitOfVolume.CUBIC_METERS},
+}
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Set up sensor from a config entry."""
-    include = hass.data[DOMAIN][DATA_CONFIG][CONF_INCLUDE]
-    quasar = hass.data[DOMAIN][entry.unique_id]
-
     entities = []
 
-    for device in quasar.devices:
-        # compare device name/id/room/etc
-        if not (config := utils.device_include(device, include)):
-            continue
-
+    for quasar, device, config in hass_utils.incluce_devices(hass, entry):
         if "properties" in config:
             instances = config["properties"]
         elif device["type"] in INCLUDE_TYPES:
-            instances = INCLUDE_INSTANCES  # all supported instances
+            instances = ENTITY_DESCRIPTIONS.keys()  # all supported instances
         else:
             continue
 
-        for config in device["properties"]:
-            if utils.instance_include(config, instances, INCLUDE_PROPERTIES):
-                entities.append(YandexCustomSensor(quasar, device, config))
+        for instance in device["properties"]:
+            if instance["type"] not in INCLUDE_PROPERTIES:
+                continue
+            if instance["parameters"]["instance"] in instances:
+                entities.append(YandexCustomSensor(quasar, device, instance))
 
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
 # noinspection PyAbstractClass
 class YandexCustomSensor(SensorEntity, YandexCustomEntity):
     def internal_init(self, capabilities: dict, properties: dict):
-        self.entity_description = next(
-            i for i in SENSOR_TYPES if i.key == self.instance
-        )
+        if desc := ENTITY_DESCRIPTIONS.get(self.instance):
+            self._attr_device_class = desc["class"]
+            if "units" in desc:
+                self._attr_native_unit_of_measurement = desc["units"]
+                self._attr_state_class = SensorStateClass.MEASUREMENT
 
     def internal_update(self, capabilities: dict, properties: dict):
         if self.instance in properties:

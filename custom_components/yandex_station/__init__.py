@@ -1,5 +1,5 @@
-import json
 import logging
+from datetime import timedelta
 
 import voluptuous as vol
 from homeassistant.components.binary_sensor import HomeAssistant  # important for tests
@@ -9,53 +9,61 @@ from homeassistant.components.media_player import (
     DOMAIN as MEDIA_DOMAIN,
     SERVICE_PLAY_MEDIA,
 )
-from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
+from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
 from homeassistant.const import (
-    CONF_USERNAME,
-    CONF_PASSWORD,
     ATTR_ENTITY_ID,
-    EVENT_HOMEASSISTANT_STOP,
-    CONF_TOKEN,
-    CONF_INCLUDE,
     CONF_DEVICES,
+    CONF_DOMAIN,
     CONF_HOST,
+    CONF_INCLUDE,
+    CONF_PASSWORD,
     CONF_PORT,
-    MAJOR_VERSION,
-    MINOR_VERSION,
+    CONF_TOKEN,
+    CONF_USERNAME,
+    EVENT_HOMEASSISTANT_STOP,
 )
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import (
     aiohttp_client as ac,
     config_validation as cv,
-    discovery,
     device_registry as dr,
 )
+from homeassistant.helpers.event import async_track_time_interval
 
-from .core import utils
-from .core.const import (
-    CONF_INTENTS,
-    CONF_MEDIA_PLAYERS,
-    DATA_CONFIG,
-    DATA_SPEAKERS,
-    DOMAIN,
-)
+from .core import stream, utils
+from .core.const import CONF_MEDIA_PLAYERS, DATA_CONFIG, DATA_SPEAKERS, DOMAIN
 from .core.yandex_glagol import YandexIOListener
 from .core.yandex_quasar import YandexQuasar
 from .core.yandex_session import YandexSession
+from .core.yandex_station import YandexStationBase
+from .hass import hass_utils
 
 _LOGGER = logging.getLogger(__name__)
 
-MAIN_DOMAINS = ["media_player", "select"]
-SUB_DOMAINS = [
+# only for speakers
+SPEAKER_PLATFORMS = [
+    "calendar",
+    "camera",
+    "media_player",
+    "select",
+]
+# for import section
+PLATFORMS = [
+    "button",
+    "calendar",
+    "camera",
     "climate",
-    "light",
+    "cover",
     "humidifier",
+    "light",
+    "media_player",
     "number",
     "remote",
+    "select",
+    "sensor",
     "switch",
     "vacuum",
-    "sensor",
     "water_heater",
 ]
 
@@ -73,7 +81,6 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(CONF_PASSWORD): cv.string,
                 vol.Optional(CONF_TOKEN): cv.string,
                 vol.Optional(CONF_TTS_NAME): cv.string,
-                vol.Optional(CONF_INTENTS): dict,
                 vol.Optional(CONF_INCLUDE): cv.ensure_list,
                 vol.Optional(CONF_DEVICES): {
                     cv.string: vol.Schema(
@@ -86,6 +93,7 @@ CONFIG_SCHEMA = vol.Schema(
                 },
                 vol.Optional(CONF_MEDIA_PLAYERS): vol.Any(dict, list),
                 vol.Optional(CONF_RECOGNITION_LANG): cv.string,
+                vol.Optional(CONF_DOMAIN): cv.string,
                 vol.Optional(CONF_PROXY): cv.string,
                 vol.Optional(CONF_SSL): cv.boolean,
                 vol.Optional(CONF_DEBUG, default=False): cv.boolean,
@@ -98,16 +106,15 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistant, hass_config: dict):
-    assert (MAJOR_VERSION, MINOR_VERSION) >= (2021, 12)
-
     config: dict = hass_config.get(DOMAIN) or {}
     hass.data[DOMAIN] = {DATA_CONFIG: config, DATA_SPEAKERS: {}}
 
-    if CONF_RECOGNITION_LANG in config:
-        utils.fix_recognition_lang(
-            hass, "frontend_latest", config[CONF_RECOGNITION_LANG]
-        )
+    # if CONF_RECOGNITION_LANG in config:
+    #     utils.fix_recognition_lang(
+    #         hass, "frontend_latest", config[CONF_RECOGNITION_LANG]
+    #     )
 
+    YandexSession.domain = config.get(CONF_DOMAIN)
     YandexSession.proxy = config.get(CONF_PROXY)
     YandexSession.ssl = config.get(CONF_SSL)
 
@@ -115,7 +122,19 @@ async def async_setup(hass: HomeAssistant, hass_config: dict):
     await _init_services(hass)
     await _setup_entry_from_config(hass)
 
-    hass.http.register_view(utils.StreamingView(hass))
+    def import_conversation():
+        try:
+            from . import conversation
+
+            SPEAKER_PLATFORMS.append("conversation")
+            PLATFORMS.append("conversation")
+        except ImportError as e:
+            _LOGGER.warning(repr(e))
+
+    # using executor, because bug with "Detected blocking call"
+    await hass.async_add_executor_job(import_conversation)
+
+    hass.http.register_view(stream.StreamView(hass))
 
     return True
 
@@ -144,6 +163,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     quasar = YandexQuasar(yandex)
     await quasar.init()
 
+    await hass_utils.load_fake_devies(hass, quasar)
+
     # entry.unique_id - user login
     hass.data[DOMAIN][entry.unique_id] = quasar
 
@@ -155,28 +176,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             device.update(speakers[did])
         speakers[did] = device
 
-    await _setup_intents(hass, quasar)
-    await _setup_include(hass, entry)
     await _setup_devices(hass, quasar)
 
     quasar.start()
 
-    for domain in MAIN_DOMAINS:
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(entry, domain)
+    if hass_utils.incluce_devices(hass, entry):
+        quasar.platforms = platforms = PLATFORMS
+        entry.async_on_unload(
+            async_track_time_interval(
+                hass, quasar.devices_passive_update, timedelta(minutes=5)
+            )
         )
+    else:
+        quasar.platforms = platforms = SPEAKER_PLATFORMS
+
+    await hass.config_entries.async_forward_entry_setups(entry, platforms)
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+
     return True
+
+
+async def async_reload_entry(hass: HomeAssistant, config_entry: ConfigEntry):
+    await hass.config_entries.async_reload(config_entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     quasar: YandexQuasar = hass.data[DOMAIN][entry.unique_id]
     quasar.stop()
-    
-    domains = MAIN_DOMAINS
-    if CONF_INCLUDE in hass.data[DOMAIN][DATA_CONFIG]:
-        domains += SUB_DOMAINS  
 
-    return await hass.config_entries.async_unload_platforms(entry, domains)
+    platforms = getattr(quasar, "platforms")
+    return await hass.config_entries.async_unload_platforms(entry, platforms)
 
 
 async def _init_local_discovery(hass: HomeAssistant):
@@ -186,14 +215,17 @@ async def _init_local_discovery(hass: HomeAssistant):
     async def found_local_speaker(info: dict):
         speaker = speakers.setdefault(info["device_id"], {})
         speaker.update(info)
-        if (entity := speaker.get("entity")) and entity.hass:
+        entity: YandexStationBase = speaker.get("entity")
+        if entity and entity.hass:
             await entity.init_local_mode()
             entity.async_write_ha_state()
 
     zeroconf = await utils.get_zeroconf_singleton(hass)
 
-    listener = YandexIOListener(hass.loop)
-    listener.start(found_local_speaker, zeroconf)
+    listener = YandexIOListener(
+        lambda info: hass.create_task(found_local_speaker(info))
+    )
+    listener.start(zeroconf)
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, listener.stop)
 
@@ -202,39 +234,37 @@ async def _init_services(hass: HomeAssistant):
     """Init Yandex Station TTS service."""
     speakers: dict = hass.data[DOMAIN][DATA_SPEAKERS]
 
-    async def send_command(call: ServiceCall):
-        data = dict(call.data)
+    try:
+        # starting from Home Assistant 2023.7
+        from homeassistant.core import ServiceResponse, SupportsResponse
+        from homeassistant.helpers import service
 
-        device = data.pop("device", None)
-        entity_ids = data.pop(ATTR_ENTITY_ID, None) or utils.find_station(
-            speakers.values(), device
+        async def send_command(call: ServiceCall) -> ServiceResponse:
+            selected = service.async_extract_referenced_entity_ids(hass, call)
+            entity_ids = selected.referenced | selected.indirectly_referenced
+            for speaker in speakers.values():
+                entity: YandexStationBase = speaker.get("entity")
+                if (
+                    not entity
+                    or entity.entity_id not in entity_ids
+                    or not entity.glagol
+                ):
+                    continue
+                data = service.remove_entity_service_fields(call)
+                data.setdefault("command", "sendText")
+                if external := data.get("external"):
+                    data = utils.external_command(**external)
+                return await entity.glagol.send(data)
+            return {"error": "Entity not found"}
+
+        hass.services.async_register(
+            DOMAIN,
+            "send_command",
+            send_command,
+            supports_response=SupportsResponse.OPTIONAL,
         )
-
-        _LOGGER.debug(f"Send command to: {entity_ids}")
-
-        if not entity_ids:
-            _LOGGER.error("Entity_id parameter required")
-            return
-
-        data = (
-            {
-                ATTR_ENTITY_ID: entity_ids,
-                ATTR_MEDIA_CONTENT_ID: data.get("text"),
-                ATTR_MEDIA_CONTENT_TYPE: "dialog",
-            }
-            if data.get("command") == "dialog"
-            else {
-                ATTR_ENTITY_ID: entity_ids,
-                ATTR_MEDIA_CONTENT_ID: json.dumps(data),
-                ATTR_MEDIA_CONTENT_TYPE: "json",
-            }
-        )
-
-        await hass.services.async_call(
-            MEDIA_DOMAIN, SERVICE_PLAY_MEDIA, data, blocking=True
-        )
-
-    hass.services.async_register(DOMAIN, "send_command", send_command)
+    except ImportError as e:
+        _LOGGER.warning(repr(e))
 
     async def yandex_station_say(call: ServiceCall):
         entity_ids = call.data.get(ATTR_ENTITY_ID) or utils.find_station(
@@ -292,31 +322,6 @@ async def _setup_entry_from_config(hass: HomeAssistant):
     )
 
 
-async def _setup_intents(hass: HomeAssistant, quasar: YandexQuasar):
-    """Setup Intents MediaPlayer and scenarios for Yandex Account."""
-    config = hass.data[DOMAIN][DATA_CONFIG]
-    if CONF_INTENTS not in config:
-        return
-
-    intents: dict = config[CONF_INTENTS]
-
-    if CONF_INTENTS not in hass.data[DOMAIN]:
-        hass.data[DOMAIN][CONF_INTENTS] = True
-        discovered = {CONF_INTENTS: list(intents.keys())}
-        hass.async_create_task(
-            discovery.async_load_platform(
-                hass, MEDIA_DOMAIN, DOMAIN, discovered, config
-            )
-        )
-
-    if quasar.hass_id:
-        for i, intent in enumerate(intents.keys(), 1):
-            try:
-                await quasar.add_intent(intent, intents[intent], i)
-            except:
-                pass
-
-
 async def _setup_devices(hass: HomeAssistant, quasar: YandexQuasar):
     """Set speakers additional config from YAML."""
     config = hass.data[DOMAIN][DATA_CONFIG]
@@ -329,18 +334,6 @@ async def _setup_devices(hass: HomeAssistant, quasar: YandexQuasar):
         did = device["quasar_info"]["device_id"]
         if upd := confdevices.get(did) or confdevices.get(did.lower()):
             device.update(upd)
-
-
-async def _setup_include(hass: HomeAssistant, entry: ConfigEntry):
-    """Setup additional devices from Yandex account."""
-    config = hass.data[DOMAIN][DATA_CONFIG]
-    if CONF_INCLUDE not in config:
-        return
-
-    for domain in SUB_DOMAINS:
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(entry, domain)
-        )
 
 
 async def async_remove_config_entry_device(
