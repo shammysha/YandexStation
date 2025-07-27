@@ -1053,7 +1053,7 @@ class YandexStation(YandexStationBase):
             else:
                 self.async_write_ha_state()
                 
-    async def _media_player_registry_change_listener(self, event: EventType[EventEntityRegistryUpdatedData]) -> None:
+    async def _media_player_registry_change_listener(self, event: Event[EventEntityRegistryUpdatedData]) -> None:
         if event.data["action"] != "update":
             return
 
