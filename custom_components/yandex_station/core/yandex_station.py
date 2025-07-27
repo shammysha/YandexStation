@@ -1030,7 +1030,7 @@ class YandexStation(YandexStationBase):
                 )
             )           
 
-    async def _media_player_state_change_listener(self, event: EventType[EventStateChangedData]) -> None:
+    async def _media_player_state_change_listener(self, event: Event[EventStateChangedData]) -> None:
         if (
             (
                 event.data["old_state"] is None 
