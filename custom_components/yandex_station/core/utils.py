@@ -436,6 +436,19 @@ def get_media_players(hass: HomeAssistant, speaker_id: str) -> List[dict]:
         _LOGGER.warning("Can't get media_players", exc_info=e)
         return []
 
+def get_all_media_player_entities(hass: HomeAssistant) -> List[dict]:
+    try:
+        ec: EntityComponent = hass.data["entity_components"]["media_player"]
+        return [ 
+            entity.entity_id
+            for entity in ec.entities
+            if (
+                entity.platform.platform_name != DOMAIN
+            )
+        ]
+    except Exception as e:
+        _LOGGER.warning("Can't get media_player_entities", exc_info=e)
+        return []
 
 def encode_media_source(query: dict) -> str:
     """Convert message param as URL query and all other params as hex path."""

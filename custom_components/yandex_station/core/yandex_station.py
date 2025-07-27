@@ -16,13 +16,17 @@ from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
+    SUPPORT_PLAY_MEDIA
     MediaType,
     RepeatMode,
     async_process_play_media_url,
 )
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.components.media_source.models import BrowseMediaSource
-from homeassistant.core import callback
+from homeassistant.core import callback, split_entity_id
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceRegistry
+from homeassistant.helpers.entity_registry import EntityRegistry
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import (
     ExtraStoredData,
@@ -30,7 +34,15 @@ from homeassistant.helpers.restore_state import (
     RestoredExtraData,
 )
 from homeassistant.helpers.template import Template
-
+from homeassistant.helpers.typing import EventType
+from homeassistant.helpers.event import (
+    TrackStates, 
+    EventStateChangedData, 
+    EventEntityRegistryUpdatedData, 
+    async_track_state_change_filtered,
+    async_track_entity_registry_updated_event
+)
+from homeassistant.util import dt
 from . import stream, utils
 from .const import DATA_CONFIG, DOMAIN
 from .yandex_glagol import YandexGlagol
@@ -131,6 +143,7 @@ CUSTOM = {
     "mike": ["yandex:lg-xboom-wk7y", "Яндекс", "IP камера (2025)"],
 }
 
+STATES_OUT_OF_USE = [ MediaPlayerState.OFF, STATE_UNAVAILABLE, STATE_UNKNOWN ]
 
 # noinspection PyAbstractClass
 class YandexSource(BrowseMediaSource):
@@ -937,37 +950,26 @@ class YandexStationBase(MediaBrowser, RestoreEntity):
 class YandexStation(YandexStationBase):
     # {name: entity_id} pairs
     sync_sources: dict = None
-
     sync_enabled: bool = False
-
+    
     sync_id: Optional[str] = None
     sync_playing: Optional[bool] = None
     sync_volume: Optional[float] = None
     sync_mute: Optional[bool] = None
 
+    all_players: Optional[str] = None
+    
     async def init_local_mode(self):
         await super().init_local_mode()
-
-        # init sources only once
-        if self.sync_sources is not None:
-            return
-
-        self.sync_sources = {
-            src["name"]: src
-            for src in utils.get_media_players(self.hass, self.entity_id)
-        }
-
-        if not self.sync_sources:
-            return
-
-        if not self._attr_source_list:
-            self._attr_device_class = MediaPlayerDeviceClass.TV
-            self._attr_source_list = [SOURCE_STATION]
+        
+        if self.all_players is None:
+            self.all_players = utils.get_all_media_player_entities(self.hass)
+            
+        if self.sync_sources is None:
+            await self.async_build_source_list()
             self._attr_source = SOURCE_STATION
 
-        self._attr_source_list += list(self.sync_sources.keys())
-
-    async def async_select_source(self, source: str):
+    async def async_select_source(self, source):
         if self.sync_mute is True:
             # включаем звук колонке, если выключали его
             self.hass.create_task(self.async_mute_volume(False))
@@ -1001,7 +1003,71 @@ class YandexStation(YandexStationBase):
                         {"entity_id": entity_id, "seek_position": position},
                     )
 
-    @callback
+    async def async_build_source_list(self) -> None:
+        self.sync_sources = {}
+            
+        for src in utils.get_media_players(self.hass, self.entity_id):
+            if src.get("name"):
+                self.sync_sources[src.get("name")] = src
+
+        self._attr_device_class = MediaPlayerDeviceClass.TV
+        self._attr_source_list = [SOURCE_STATION] + list(self.sync_sources.keys())
+    
+    @callback    
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added to hass."""
+        await super().async_added_to_hass()
+        
+        # Add listener
+        self.async_on_remove(
+            async_track_state_change_filtered(
+                self.hass, TrackStates(False, set(), {"media_player"}), self._media_player_state_change_listener
+            ).async_remove
+        )    
+        self.async_on_remove(
+            async_track_entity_registry_updated_event(
+                self.hass, iter(self.all_players), self._media_player_registry_change_listener
+            )
+        )           
+
+    async def _media_player_state_change_listener(self, event: EventType[EventStateChangedData]) -> None:
+        if (
+            (
+                event.data["old_state"] is None 
+                or event.data["old_state"].state in STATES_OUT_OF_USE
+            ) 
+            and event.data["new_state"] is not None 
+            and event.data["new_state"].state not in STATES_OUT_OF_USE
+        ) or (
+            (
+                event.data["new_state"] is None 
+                or event.data["new_state"].state in STATES_OUT_OF_USE
+            ) 
+            and event.data["old_state"] is not None 
+            and event.data["old_state"].state not in STATES_OUT_OF_USE            
+        ):
+            await self.async_build_source_list()
+
+            if self._attr_source not in self._attr_source_list:
+                await self.async_select_source(SOURCE_STATION)
+            else:
+                self.async_write_ha_state()
+                
+    async def _media_player_registry_change_listener(self, event: EventType[EventEntityRegistryUpdatedData]) -> None:
+        if event.data["action"] != "update":
+            return
+
+        er: EntityRegistry = self.hass.data['entity_registry']
+        ent_reg = er.async_get(event.data["entity_id"])
+
+        if ent_reg.supported_features & SUPPORT_PLAY_MEDIA:
+            await self.async_build_source_list()
+
+            if self._attr_source not in self._attr_source_list:
+                await self.async_select_source(SOURCE_STATION)
+            else:
+                self.async_write_ha_state()
+    
     def async_set_state(self, data: dict):
         super().async_set_state(data)
 
