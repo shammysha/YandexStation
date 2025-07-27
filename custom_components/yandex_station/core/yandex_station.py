@@ -22,7 +22,7 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.components.media_source.models import BrowseMediaSource
-from homeassistant.core import callback, split_entity_id, EventType
+from homeassistant.core import callback, split_entity_id, Event
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceRegistry
 from homeassistant.helpers.entity_registry import EntityRegistry
