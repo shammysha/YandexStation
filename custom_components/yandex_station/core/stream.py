@@ -4,7 +4,6 @@ import socket
 import time
 from urllib.parse import urljoin, urlparse
 
-import jwt
 from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, hdrs, web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.media_player import async_process_play_media_url
@@ -43,12 +42,29 @@ def get_url(url: str, ext: str = None, expires: int = 3600) -> str:
     ext = ext.replace("-", ".") if ext else get_ext(url)
     assert ext in MIME_TYPES, ext
 
-    # using token for security reason
-    payload: dict[str, str | int] = {"url": url}
-    if expires:
-        payload["exp"] = int(time.time()) + expires
-    token = jwt.encode(payload, StreamView.key, "HS256")
-    return f"{StreamView.hass_url}/api/yandex_station/{token}.{ext}"
+    # Короткий непрозрачный токен вместо самодостаточного JWT с полным
+    # исходным URL внутри — итоговая ссылка на порядок короче. Реальный URL
+    # хранится только у нас (StreamView.tokens), а не гоняется туда-сюда в
+    # самой ссылке, которую некоторые DLNA-рендереры затем ещё и дублируют
+    # у себя в ответных метаданных (иногда дважды).
+    token = secrets.token_urlsafe(8)
+    exp = int(time.time()) + expires if expires else None
+    StreamView.tokens[token] = (url, exp)
+    _prune_expired_tokens()
+
+    # "?t=1" в конце — не для нас, а чтобы homeassistant.components.media_player
+    # .browse_media.async_process_play_media_url() пропустил подпись пути
+    # (`?authSig=...`, отдельный JWT ещё длиннее этого): она проверяет именно
+    # наличие query-параметра и, если он есть, подпись не добавляет. Подпись
+    # тут и так ничего не защищает — у StreamView requires_auth = False.
+    return f"{StreamView.hass_url}/api/yandex_station/{token}.{ext}?t=1"
+
+
+def _prune_expired_tokens() -> None:
+    now = time.time()
+    for k, (_, exp) in list(StreamView.tokens.items()):
+        if exp and exp < now:
+            StreamView.tokens.pop(k, None)
 
 
 async def get_hls(session: ClientSession, url: str) -> str:
@@ -99,12 +115,12 @@ async def get_content_type(hass: HomeAssistant, url: str) -> str | None:
 class StreamView(HomeAssistantView):
     requires_auth = False
 
-    url = "/api/yandex_station/{token:[\\w-]+.[\\w-]+.[\\w-]+}.{ext}"
+    url = "/api/yandex_station/{token:[\\w-]+}.{ext}"
     name = "api:yandex_station"
 
     hass: HomeAssistant = None
     hass_url: str = None
-    key: str = None
+    tokens: dict[str, tuple[str, int | None]] = {}
 
     def __init__(self, hass: HomeAssistant):
         # Некоторые CDN-ноды Яндекса резолвятся и в IPv4, и в IPv6, но IPv6
@@ -114,7 +130,6 @@ class StreamView(HomeAssistantView):
         self.session = ClientSession(connector=TCPConnector(family=socket.AF_INET))
 
         StreamView.hass = hass
-        StreamView.key = secrets.token_hex()
 
         try:
             StreamView.hass_url = network.get_url(hass, allow_external=False)
@@ -128,14 +143,13 @@ class StreamView(HomeAssistantView):
         return async_process_play_media_url(self.hass, url)
 
     async def head(self, request: web.Request, token: str, ext: str):
-        try:
-            data = jwt.decode(token, StreamView.key, "HS256")
-        except jwt.InvalidTokenError:
+        entry = StreamView.tokens.get(token)
+        if entry is None or (entry[1] and entry[1] < time.time()):
             return web.HTTPNotFound()
 
-        _LOGGER.debug(f"Stream.{ext} HEAD {data}")
+        _LOGGER.debug(f"Stream.{ext} HEAD {entry[0]}")
 
-        url = self.get_url(data["url"])
+        url = self.get_url(entry[0])
 
         headers = copy_headers(request.headers, REQUEST_HEADERS)
         async with self.session.head(url, headers=headers) as r:
@@ -144,14 +158,13 @@ class StreamView(HomeAssistantView):
             return web.Response(status=r.status, headers=headers)
 
     async def get(self, request: web.Request, token: str, ext: str):
-        try:
-            data = jwt.decode(token, StreamView.key, "HS256")
-        except jwt.InvalidTokenError:
+        entry = StreamView.tokens.get(token)
+        if entry is None or (entry[1] and entry[1] < time.time()):
             return web.HTTPNotFound()
 
-        _LOGGER.debug(f"Stream.{ext} GET {data}")
+        _LOGGER.debug(f"Stream.{ext} GET {entry[0]}")
 
-        url = self.get_url(data["url"])
+        url = self.get_url(entry[0])
 
         try:
             if ext == "m3u8":
