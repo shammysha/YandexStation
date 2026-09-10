@@ -1,10 +1,11 @@
 import logging
 import secrets
+import socket
 import time
 from urllib.parse import urljoin, urlparse
 
 import jwt
-from aiohttp import ClientError, ClientSession, ClientTimeout, hdrs, web
+from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, hdrs, web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.media_player import async_process_play_media_url
 from homeassistant.core import HomeAssistant
@@ -106,7 +107,11 @@ class StreamView(HomeAssistantView):
     key: str = None
 
     def __init__(self, hass: HomeAssistant):
-        self.session = async_get_clientsession(hass)
+        # Некоторые CDN-ноды Яндекса резолвятся и в IPv4, и в IPv6, но IPv6
+        # в этой сети нестабилен (рвётся посреди передачи, connection reset) —
+        # форсируем IPv4-only для этой конкретной сессии, не трогая общую
+        # сессию HA (async_get_clientsession).
+        self.session = ClientSession(connector=TCPConnector(family=socket.AF_INET))
 
         StreamView.hass = hass
         StreamView.key = secrets.token_hex()
